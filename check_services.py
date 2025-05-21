@@ -3,11 +3,11 @@ from neo4j import GraphDatabase
 
 URI = "bolt://localhost:7687"  # Neo4jのURI
 USER = "neo4j"  # ユーザー名
-PASSWORD = "hirota0316"  # パスワード
+PASSWORD = "HIROTAHIROTA"  # パスワード
 
 try:
     response = ollama.chat(
-        model="llama3", messages=[{"role": "user", "content": "Hello world"}]
+        model="mistral", messages=[{"role": "user", "content": "Hello world"}]
     )  # モデル名は適宜変更
     print("Ollama connection successful:")
     print(response["message"]["content"])

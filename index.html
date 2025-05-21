@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG / GraphRAG 研究システム</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* 基本スタイルとリセット */
+        body {
+            margin: 0;
+            font-family: 'Roboto', sans-serif;
+            /* より一般的なフォント */
+            color: #333;
+            /* 標準的な文字色 */
+            line-height: 1.6;
+            background-color: #f8f9fa;
+            /* 薄い背景色 */
+        }
+
+        h1,
+        h2,
+        h3 {
+            color: #0d47a1;
+            /* 濃い青系の見出し色 */
+            margin-top: 0;
+            /* 上の要素との余白は別途指定 */
+            margin-bottom: 15px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            font-size: 1.8em;
+            margin-bottom: 15px;
+        }
+
+        h3 {
+            font-size: 1.4em;
+            margin-bottom: 10px;
+        }
+
+        /* レイアウト */
+        .container {
+            display: flex;
+            min-height: 100vh;
+            /* 画面の高さいっぱい */
+        }
+
+        .sidebar {
+            width: 300px;
+            background-color: #e3f2fd;
+            /* 明るい青系のサイドバー背景 */
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+            /* 影 */
+        }
+
+        .main-content {
+            flex-grow: 1;
+            padding: 20px 40px;
+            /* 左右のパディングを広げる */
+            overflow-y: auto;
+        }
+
+        /* セクション */
+        .section {
+            margin-bottom: 30px;
+            padding-top: 10px;
+            border-bottom: 1px solid #cfd8dc;
+            /* セクションの下線 */
+        }
+
+        .section:first-of-type {
+            padding-top: 0;
+        }
+
+        .section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+        /* ボタン */
+        .button {
+            display: inline-block;
+            background-color: #1976d2;
+            /* 青系のボタン色 */
+            color: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            /* 角丸 */
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            font-size: 1em;
+            border: none;
+            /* ボーダーをなくす */
+            transition: background-color 0.3s ease;
+            /* ホバーアニメーション */
+        }
+
+        .button:hover {
+            background-color: #1565c0;
+            /* ホバー時の色 */
+        }
+
+        .button:active {
+            background-color: #0d47a1;
+            /* クリック時の色 */
+        }
+
+
+        /* フォーム要素 */
+        .text-area,
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            margin-bottom: 15px;
+            border: 1px solid #b0bec5;
+            /* 薄いボーダー */
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 1em;
+        }
+
+        .text-area {
+            min-height: 100px;
+            /* 最小の高さ */
+            resize: vertical;
+            /* 垂直方向のみリサイズ可能に */
+        }
+
+        /* チェックボックス/ラジオボタンのグループ */
+        .checkbox-group label {
+            margin-right: 15px;
+            display: inline-block;
+            /* 横並び */
+            margin-bottom: 8px;
+        }
+
+        .checkbox-group p {
+            margin-bottom: 8px;
+            font-weight: 500;
+            /* 少し太字 */
+        }
+
+
+        /* ステータス/警告/結果表示ボックス */
+        .info-box,
+        .warning-box,
+        .result-box {
+            padding: 15px;
+            margin-top: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+
+        .info-box {
+            border: 1px solid #b0c4de;
+            background-color: #e0f0ff;
+            color: #0d47a1;
+        }
+
+        .warning-box {
+            border: 1px solid #ffc107;
+            background-color: #fff3cd;
+            color: #856404;
+        }
+
+        .result-box {
+            border: 1px solid #c8e6c9;
+            /* 薄い緑系のボーダー */
+            background-color: #e8f5e9;
+            /* 薄い緑系の背景色 */
+            color: #2e7d32;
+            /* 濃い緑系の文字色 */
+        }
+
+        .result-box strong {
+            color: #0e1117;
+            /* 結果内のキー名は濃い色に */
+        }
+
+        /* 区切り線 */
+        hr {
+            border: none;
+            height: 1px;
+            background-color: #cfd8dc;
+            margin: 20px 0;
+        }
+
+        /* 履歴テーブル */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08);
+            /* テーブルに影 */
+        }
+
+        th,
+        td {
+            border: 1px solid #e0e0e0;
+            padding: 12px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f5f5f5;
+            font-weight: 500;
+            color: #555;
+        }
+
+        tr:nth-child(even) {
+            /* 偶数行の背景色 */
+            background-color: #fafafa;
+        }
+
+        .history-view {
+            display: none;
+            /* JavaScriptで切り替え */
+        }
+
+        /* レスポンシブ対応 (簡単な例) */
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+                /* 画面が狭い場合は縦並び */
+            }
+
+            .sidebar {
+                width: 100%;
+                /* 幅いっぱい */
+                height: auto;
+                /* 高さ自動 */
+                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            }
+
+            .main-content {
+                padding: 20px;
+                /* パディングを調整 */
+                height: auto;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="sidebar">
+            <div class="section">
+                <h3>設定/情報</h3>
+                <p>データディレクトリ (RAG): <code>data/raw</code></p>
+                <p>データディレクトリ (Graph): <code>data/raw</code></p>
+                <p>RAG Embedding Model: <code>nomic-embed-text</code></p>
+                <p>Graph ERE Model: <code>mistral</code></p>
+                <p>Neo4j URI: <code>bolt://localhost:7687</code></p>
+            </div>
+
+            <div class="section">
+                <h3>データ解析</h3>
+                <div class="button">データ解析実行</div>
+                <div class="info-box"><em>データ解析状況表示エリア</em></div>
+            </div>
+
+            <div class="section">
+                <h3>利用可能Ollamaモデル</h3>
+                <p><em>モデルリスト表示エリア</em></p>
+                <p>例: mistral, llama3, nomic-embed-text</p>
+            </div>
+
+            <div class="section">
+                <h3>履歴表示</h3>
+                <div class="button" onclick="showHistory()">実行履歴を表示</div>
+                <div class="button" onclick="showMain()">質問入力に戻る</div>
+            </div>
+
+            <div class="section">
+                <h3>現在の状態</h3>
+                <p>RAGデータ: <em>ステータス/チャンク数</em></p>
+                <p>Graphデータ: <em>ステータス</em></p>
+                <p>Ollama: <em>ステータス</em></p>
+                <p>Neo4j: <em>ステータス (要確認)</em></p>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div id="mainView" class="main-view">
+                <h1>RAG / GraphRAG 研究システム</h1>
+                <p>事前入力データに基づき、異なる手法とLLMモデルでの回答を比較します。</p>
+                <div class="warning-box">サイドバーの「データ解析実行」をまず行ってください。</div>
+
+                <div class="section">
+                    <h2>質問と実行</h2>
+                    <p>質問文を入力してください:</p>
+                    <textarea class="text-area" placeholder="ここに質問を入力..."></textarea>
+
+                    <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+                        <div class="checkbox-group">
+                            <p>実行する手法:</p>
+                            <label><input type="checkbox" checked> RAG</label><br>
+                            <label><input type="checkbox" checked> GraphRAG</label>
+                        </div>
+                        <div class="checkbox-group">
+                            <p>利用するOllamaモデル:</p>
+                            <label><input type="checkbox" checked> mistral</label><br>
+                            <label><input type="checkbox"> llama3</label><br>
+                            <label><input type="checkbox"> other-model</label>
+                            <p><em>(利用可能モデルリストがここに表示されます)</em></p>
+                        </div>
+                    </div>
+
+                    <div class="button">実行</div>
+
+                </div>
+
+                <div class="section">
+                    <h2>実行結果 (今回の実行分)</h2>
+                    <div class="info-box"><em>実行中のステータス表示エリア</em></div>
+                    <div class="result-box">
+                        <p><strong>1. 手法:</strong> RAG, <strong>モデル:</strong> mistral, <strong>時間:</strong> XX.XX ms</p>
+                        <p><strong>コンテキスト概要:</strong> N チャンク取得</p>
+                        <p><strong>回答:</strong></p>
+                        <div
+                            style="white-space: pre-wrap; background-color: #fff; padding: 10px; border-radius: 4px; border: 1px solid #e0e0e0;">
+                            RAGモデルによる回答テキストがここに表示されます。参照情報に基づいた内容が含まれます。</div>
+                    </div>
+                    <hr>
+                    <div class="result-box">
+                        <p><strong>2. 手法:</strong> GraphRAG, <strong>モデル:</strong> mistral, <strong>時間:</strong> YY.YY
+                            ms</p>
+                        <p><strong>コンテキスト概要:</strong> ノード: N, 関係性: M 取得</p>
+                        <p><strong>回答:</strong></p>
+                        <div
+                            style="white-space: pre-wrap; background-color: #fff; padding: 10px; border-radius: 4px; border: 1px solid #e0e0e0;">
+                            GraphRAGモデルによる回答テキストがここに表示されます。グラフ構造に基づいた情報が含まれる可能性があります。</div>
+                    </div>
+                    <hr>
+                </div>
+            </div>
+
+            <div id="historyView" class="history-view">
+                <h1>実行履歴</h1>
+                <p><em>過去の実行履歴がここに表示されます。</em></p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Query</th>
+                            <th>Method</th>
+                            <th>Model</th>
+                            <th>Context Summary</th>
+                            <th>Response</th>
+                            <th>Time (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>YYYY-MM-DD HH:MM:SS</td>
+                            <td>テスト質問1</td>
+                            <td>RAG</td>
+                            <td>mistral</td>
+                            <td>5 チャンク取得</td>
+                            <td>回答例1...</td>
+                            <td>1234.56</td>
+                        </tr>
+                        <tr>
+                            <td>YYYY-MM-DD HH:MM:SS</td>
+                            <td>テスト質問1</td>
+                            <td>GraphRAG</td>
+                            <td>mistral</td>
+                            <td>ノード: 3, 関係性: 2 取得</td>
+                            <td>回答例2...</td>
+                            <td>2345.67</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    </div>
+
+
+    <script>
+        // JavaScriptでビューを切り替える（StreamlitではPython側で制御）
+        function showHistory() {
+            document.getElementById('mainView').style.display = 'none';
+            document.getElementById('historyView').style.display = 'block';
+        }
+
+        function showMain() {
+            document.getElementById('mainView').style.display = 'block';
+            document.getElementById('historyView').style.display = 'none';
+        }
+
+        // 初期表示はメインビュー
+        showMain(); // ページのロード時にメインビューを表示
+    </script>
+
+</body>
+
+</html>
