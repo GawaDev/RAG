@@ -1,373 +1,209 @@
-# app.py
+import streamlit as st
+
+st.set_page_config(layout="wide", page_title="RAG / GraphRAG 研究システム")
 
 import json
 import os
 import sqlite3
-import time  # 実行時間計測用
-from typing import List
+import time
+from datetime import datetime
 
-import numpy as np  # RAGデータ保存時のリスト変換に使用
-import streamlit as st
+import ollama
+from neo4j import GraphDatabase
 
-# --- プロジェクト内のモジュールから関数をインポート ---
-# 各ファイルに関数が定義されている前提です
-# 必要に応じて、インポートする関数名やファイル名を調整してください
+from graph_search import get_graph_context
+from llm_generate import generate_response
 
-# preprocess_data_rag.py に以下の関数と定数があることを想定
-try:
-    from preprocess_data_rag import DATA_DIR as RAG_DATA_DIR
-    from preprocess_data_rag import EMBEDDING_MODEL as RAG_EMBEDDING_MODEL
-    from preprocess_data_rag import preprocess_for_rag
-except ImportError:
-    st.error(
-        "Error: preprocess_data_rag.py が見つからないか、必要な関数/定数が定義されていません。"
-    )
-    st.stop()  # スクリプトを停止
+# 各モジュールのインポート
+from preprocess_data_rag import preprocess_for_rag
+from preprocess_graph import preprocess_for_graph
+from rag_search import (
+    get_rag_context,
+)
 
-# preprocess_graph.py に以下の関数と定数があることを想定
-try:
-    from neo4j import GraphDatabase  # Neo4j接続用
+OLLAMA_HOST = st.secrets["ollama"]["host"]
+NEO4J_URI = st.secrets["neo4j"]["uri"]
+NEO4J_USER = st.secrets["neo4j"]["user"]
+NEO4J_PASSWORD = st.secrets["neo4j"]["password"]
 
-    from preprocess_graph import DATA_DIR as GRAPH_DATA_DIR
-    from preprocess_graph import ERE_MODEL as GRAPH_ERE_MODEL
-    from preprocess_graph import preprocess_for_graph
-except ImportError:
-    st.error(
-        "Error: preprocess_graph.py が見つからないか、必要な関数/定数が定義されていません。Neo4jライブラリも確認してください。"
-    )
-    st.stop()  # スクリプトを停止
+RAG_DATA_DIR = "./data/raw"
+RESULTS_DB_FILE = "./research_results.db"
+RAG_CACHE_FILE = "./processed_rag_data_cache.json"
 
-
-# rag_search_generate.py または rag_search.py に以下の関数があることを想定
-# 関数名を get_rag_context に修正している前提です
-try:
-    # rag_search_generate.py 内の関数名を変更している可能性があります
-    # find_similar_chunks と format_context 関数を使用
-    from rag_search_generate import find_similar_chunks
-    from rag_search_generate import format_context as format_rag_context
-except ImportError:
-    st.error(
-        "Error: rag_search_generate.py が見つからないか、必要な関数が定義されていません。"
-    )
-    st.stop()  # スクリプトを停止
-
-# graph_search.py に以下の関数があることを想定
-# 関数名を get_graph_context に修正している前提です
-try:
-    # graph_search.py 内の関数を使用
-    from graph_search import (
-        format_graph_results_for_llm,
-        identify_query_entities,
-        perform_graph_search,
-    )
-except ImportError:
-    st.error(
-        "Error: graph_search.py が見つからないか、必要な関数が定義されていません。"
-    )
-    st.stop()  # スクリプトを停止
-
-# llm_generate.py に generate_response 関数があることを想定
-try:
-    import ollama  # Ollamaクライアント用
-
-    from llm_generate import generate_response
-except ImportError:
-    st.error(
-        "Error: llm_generate.py が見つからないか、必要な関数が定義されていません。Ollamaライブラリも確認してください。"
-    )
-    st.stop()  # スクリプトを停止
-
-
-# --- 設定 ---
-# RAG処理済みデータを保存/ロードするファイル (データ解析結果をアプリ間で共有するため)
-PROCESSED_RAG_DATA_FILE = "processed_rag_data_cache.json"  # キャッシュファイル名を変更
-# 実行結果を保存するデータベースファイル
-RESULTS_DB_FILE = "research_results.db"
-# Neo4j接続情報 (環境変数から取得)
-NEO4J_URI = "bolt://localhost:7687"
-NEO4J_USER = "neo4j"
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password")  # 環境変数から取得
-
-# --- Streamlit アプリケーションの定義 ---
-
-st.set_page_config(layout="wide", page_title="RAG vs GraphRAG 研究システム")
-
-# --- 状態管理 ---
-# Streamlit のセッション状態を使って、アプリの状態を維持
-if "processed_rag_data" not in st.session_state:
-    # ファイルからキャッシュされたデータをロード、なければNone
-    try:
-        if os.path.exists(PROCESSED_RAG_DATA_FILE):
-            with open(PROCESSED_RAG_DATA_FILE, "r", encoding="utf-8") as f:
-                cached_data = json.load(f)
-                # ベクトルはリストとして保存されているので、numpy配列に戻す必要はないが、
-                # 念のためリスト形式であることを確認
-                if (
-                    cached_data
-                    and isinstance(cached_data, list)
-                    and "vector" in cached_data[0]
-                    and isinstance(cached_data[0]["vector"], list)
-                ):
-                    st.session_state["processed_rag_data"] = cached_data
-                    print(
-                        f"Cached RAG data loaded from {PROCESSED_RAG_DATA_FILE}"
-                    )  # ターミナルにログ
-                else:
-                    st.session_state["processed_rag_data"] = None
-                    print(
-                        f"Cached RAG data file {PROCESSED_RAG_DATA_FILE} is empty or invalid format."
-                    )  # ターミナルにログ
-        else:
-            st.session_state["processed_rag_data"] = None
-            print(
-                f"No RAG data cache file found at {PROCESSED_RAG_DATA_FILE}"
-            )  # ターミナルにログ
-
-    except Exception as e:
-        st.session_state["processed_rag_data"] = None
-        print(f"Error loading cached RAG data: {e}")  # ターミナルにログ
-
-
-if "graph_processed_status" not in st.session_state:
-    # GraphRAGの処理済み状態はNeo4jのデータ存在で判断することも可能だが、
-    # ここではシンプルにセッション中に解析ボタンを押したかを記録
-    st.session_state["graph_processed_status"] = False  # アプリ起動時は未処理状態とする
-
-if "ollama_client" not in st.session_state:
-    st.session_state["ollama_client"] = None  # Ollamaクライアントインスタンス
-
-if "ollama_models" not in st.session_state:
-    st.session_state["ollama_models"] = []  # 利用可能なOllamaモデル名リスト
-
-if "view_history" not in st.session_state:
-    st.session_state["view_history"] = False  # 履歴表示状態フラグ
+# --- LLM モデル設定 ---
+RAG_EMBEDDING_MODEL = "nomic-embed-text"  # RAGベクトル生成用モデル
+GRAPH_ERE_MODEL = "llama3"  # Graphエンティティ・関係性抽出用モデル
+LLM_MODELS = ["llama3", "llama4", "mistral", "gemma3", "qwen3", "phi4"]
 
 
 # --- データベース初期化 ---
 def init_db():
-    """結果保存用データベースとテーブルを作成/確認する"""
-    try:
-        conn = sqlite3.connect(RESULTS_DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS results (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                query TEXT,
-                method TEXT, -- 'RAG' or 'GraphRAG'
-                model TEXT,
-                rag_context_summary TEXT, -- RAGコンテキストの概要（例: チャンク数）
-                graph_context_summary TEXT, -- Graphコンテキストの概要（例: ノード数、エッジ数）
-                -- context_content TEXT, -- RAG/GraphRAGコンテキストの全内容 (保存するかは要検討、容量注意)
-                response TEXT,
-                processing_time_ms REAL, -- 処理時間（ミリ秒）
-                source_data_dir TEXT -- どのデータディレクトリを使ったか
-            )
-        """)
-        conn.commit()
-        conn.close()
-        # print(f"Database {RESULTS_DB_FILE} initialized.") # ターミナルにログ
-    except Exception as e:
-        st.error(f"データベースの初期化に失敗しました: {e}")
-        # print(f"Database initialization error: {e}") # ターミナルにログ
+    conn = sqlite3.connect(RESULTS_DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            query TEXT NOT NULL,
+            method TEXT NOT NULL,
+            model TEXT NOT NULL,
+            rag_context_summary TEXT,
+            graph_context_summary TEXT,
+            response TEXT,
+            processing_time_ms REAL,
+            source_data_dir TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
 
 
-# --- 各種サービスのクライアント初期化 ---
+# --- クライアント初期化 ---
+@st.cache_resource
 def init_clients():
-    """Ollamaクライアントを初期化し、セッション状態に保存する"""
-    if st.session_state["ollama_client"] is None:
-        try:
-            st.session_state["ollama_client"] = ollama.Client()
-            st.sidebar.success("Ollamaクライアントに接続しました。")
-            # 利用可能なOllamaモデルを取得
-            models_list = st.session_state["ollama_client"].list()
-            st.session_state["ollama_models"] = [
-                m["name"] for m in models_list["models"]
-            ]
-            # st.sidebar.write(f"利用可能なOllamaモデル: {', '.join(st.session_state['ollama_models'])}") # サイドバーに表示
-            # print(f"Available Ollama models: {st.session_state['ollama_models']}") # ターミナルにログ
-
-        except Exception as e:
-            st.sidebar.error(
-                f"Ollamaクライアントの接続に失敗しました。Ollamaが起動しているか確認してください。\nエラー: {e}"
-            )
-            st.session_state["ollama_client"] = None
-            st.session_state["ollama_models"] = []
-            # print(f"Ollama connection error: {e}") # ターミナルにログ
+    try:
+        ollama_client = ollama.Client(host=OLLAMA_HOST)
+        test_response = ollama_client.chat(
+            model="llama3",
+            messages=[{"role": "user", "content": "ping"}],
+            options={"temperature": 0.0},
+        )
+        st.success("Ollama client connected successfully.")
+        return ollama_client
+    except Exception as e:
+        st.error(
+            f"Ollama client connection failed: {e}. Please ensure Ollama is running at {OLLAMA_HOST}"
+        )
+        return None
 
 
 # --- データ解析処理 ---
 def perform_data_parsing():
-    """「データ解析実行」ボタン押下時の処理"""
-    st.subheader("データ解析状況")
-    status_area = st.empty()  # リアルタイムで状況を表示するためのプレースホルダー
-    status_area.info("データ解析を開始します...")
+    st.session_state["rag_processed_status_msg"] = "未実行"
+    st.session_state["graph_processed_status_msg"] = "未実行"
+    st.session_state["rag_processed_status"] = False
+    st.session_state["graph_processed_status"] = False
+    st.session_state["processed_rag_data"] = None
 
-    ollama_client = st.session_state["ollama_client"]
+    if not os.path.exists(RAG_DATA_DIR):
+        st.error(f"データディレクトリが見つかりません: {RAG_DATA_DIR}")
+        return
+
+    parsing_status_area = st.empty()
+    parsing_status_area.info("データ解析を開始しています...")
+
+    ollama_client = init_clients()
     if ollama_client is None:
-        status_area.error(
-            "Ollamaクライアントが利用できません。接続を確認してください。"
+        parsing_status_area.error(
+            "Ollamaクライアントが利用できないため、データ解析を開始できません。"
         )
         return
 
-    # --- RAG向け前処理 ---
-    status_area.info(f"RAG向け前処理 ({RAG_DATA_DIR}) を実行中...")
+    # RAGデータ前処理
     try:
-        # preprocess_data_rag.py の preprocess_for_rag 関数を呼び出す
-        rag_data = preprocess_for_rag(RAG_DATA_DIR, RAG_EMBEDDING_MODEL)
-        st.session_state["processed_rag_data"] = (
-            rag_data  # 処理結果をセッション状態に保存
+        parsing_status_area.info("RAG向けデータ解析中 (チャンク化とEmbedding生成)...")
+        processed_data = preprocess_for_rag(
+            RAG_DATA_DIR, RAG_EMBEDDING_MODEL, ollama_client
         )
-
-        # 処理済みRAGデータをファイルにキャッシュ保存
-        if rag_data:
-            try:
-                serializable_data = [
-                    {
-                        "text": item["text"],
-                        "vector": np.array(
-                            item["vector"]
-                        ).tolist(),  # NumPy配列をリストに変換
-                        "source": item["source"],
-                        "chunk_id": item["chunk_id"],
-                    }
-                    for item in rag_data
-                ]
-                with open(PROCESSED_RAG_DATA_FILE, "w", encoding="utf-8") as f:
-                    json.dump(serializable_data, f, indent=2)
-                # print(f"RAG processed data cached to {PROCESSED_RAG_DATA_FILE}") # ターミナルにログ
-            except Exception as e:
-                print(f"Error saving RAG processed data cache: {e}")  # ターミナルにログ
-
-            status_area.success(
-                f"RAG向け前処理完了。{len(rag_data)} チャンクを処理しました。"
+        if processed_data:
+            st.session_state["processed_rag_data"] = processed_data
+            st.session_state["rag_processed_status"] = True
+            st.session_state["rag_processed_status_msg"] = (
+                f"RAG向け前処理完了 ({len(processed_data)}チャンク)。"
             )
+            parsing_status_area.success(st.session_state["rag_processed_status_msg"])
+            # キャッシュに保存
+            with open(RAG_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(processed_data, f, ensure_ascii=False, indent=2)
+            st.info(f"RAGデータは '{RAG_CACHE_FILE}' にキャッシュされました。")
         else:
-            st.session_state["processed_rag_data"] = None
-            status_area.warning(
-                "RAG向け前処理完了。処理対象ファイルが見つからないかエラーが発生しました。"
+            st.session_state["rag_processed_status"] = False
+            st.session_state["rag_processed_status_msg"] = (
+                "RAG向け前処理に失敗しました。"
             )
-
+            parsing_status_area.error(st.session_state["rag_processed_status_msg"])
     except Exception as e:
-        status_area.error(f"RAG向け前処理中にエラーが発生しました: {e}")
-        st.session_state["processed_rag_data"] = None
-        # print(f"RAG preprocessing error: {e}") # ターミナルにログ
+        st.session_state["rag_processed_status"] = False
+        st.session_state["rag_processed_status_msg"] = f"RAG向け前処理中にエラー: {e}"
+        parsing_status_area.error(st.session_state["rag_processed_status_msg"])
 
-    # --- GraphRAG向け前処理 ---
-    status_area.info(f"GraphRAG向け前処理 ({GRAPH_DATA_DIR}) を実行中...")
-    # Neo4j接続は preprocess_for_graph 関数内で確立・切断される前提
+    # Graphデータ前処理
     try:
-        # preprocess_graph.py の preprocess_for_graph 関数を呼び出す
-        # 返り値で成功/失敗を受け取る想定
-        success = preprocess_for_graph(
-            GRAPH_DATA_DIR, GRAPH_ERE_MODEL, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
+        parsing_status_area.info(
+            "GraphRAG向けデータ解析中 (エンティティ・関係性抽出、Neo4j登録)..."
         )
-        st.session_state["graph_processed_status"] = (
-            success  # 処理結果（成功/失敗）をセッションに保存
+        graph_processing_successful = preprocess_for_graph(
+            RAG_DATA_DIR,
+            GRAPH_ERE_MODEL,
+            NEO4J_URI,
+            NEO4J_USER,
+            NEO4J_PASSWORD,
+            ollama_client,
         )
-
-        if success:
-            status_area.success(
-                "GraphRAG向け前処理完了。Neo4jにデータが登録されたはずです。"
-            )
-            # print("Graph preprocessing successful.") # ターミナルにログ
+        if graph_processing_successful:
+            st.session_state["graph_processed_status"] = True
+            st.session_state["graph_processed_status_msg"] = "GraphRAG向け前処理完了。"
+            parsing_status_area.success(st.session_state["graph_processed_status_msg"])
         else:
-            status_area.warning(
-                "GraphRAG向け前処理中に問題が発生した可能性があります。ターミナル出力を確認してください。"
+            st.session_state["graph_processed_status"] = False
+            st.session_state["graph_processed_status_msg"] = (
+                "GraphRAG向け前処理に失敗しました。"
             )
-            # print("Graph preprocessing might have issues. Check terminal output.") # ターミナルにログ
-
+            parsing_status_area.error(st.session_state["graph_processed_status_msg"])
     except Exception as e:
-        status_area.error(f"GraphRAG向け前処理中にエラーが発生しました: {e}")
         st.session_state["graph_processed_status"] = False
-        # print(f"Graph preprocessing error: {e}") # ターミナルにログ
+        st.session_state["graph_processed_status_msg"] = (
+            f"GraphRAG向け前処理中にエラー: {e}"
+        )
+        parsing_status_area.error(st.session_state["graph_processed_status_msg"])
 
-    status_area.info("全てのデータ解析が完了しました。質問の実行に進めます。")
+    st.toast("データ解析プロセスが完了しました。")
+    parsing_status_area.empty()
+    st.info("データ解析プロセスが完了しました。最新のステータスを確認してください。")
 
 
 # --- 実行処理 ---
-def perform_execution(query: str, methods: List[str], models: List[str]):
-    """「実行」ボタン押下時の処理"""
+def perform_execution(query, methods, models):
     if not query:
-        st.warning("質問文を入力してください。")
+        st.warning("質問を入力してください。")
         return
-
     if not methods:
-        st.warning("実行する手法（RAGまたはGraphRAG）を選択してください。")
+        st.warning("少なくとも1つの手法を選択してください。")
         return
-
     if not models:
-        st.warning("利用するOllamaモデルを選択してください。")
+        st.warning("少なくとも1つのモデルを選択してください。")
         return
 
-    # 必要なデータやサービスが利用可能か確認
-    if "RAG" in methods and (
-        st.session_state["processed_rag_data"] is None
-        or len(st.session_state["processed_rag_data"]) == 0
-    ):
-        st.warning(
-            "RAG実行にはRAG向けデータ解析が必要です。データ解析を実行し、データが生成されたか確認してください。"
-        )
+    ollama_client = init_clients()
+    if ollama_client is None:
+        st.error("Ollamaクライアントが利用できないため、質問実行不可。")
         return
 
+    all_results = []
+    execution_status_area = st.empty()
+
+    # GraphRAGが選択されている場合のみNeo4jドライバーを作成
+    neo4j_driver = None
     if "GraphRAG" in methods:
-        if not st.session_state["graph_processed_status"]:
-            st.warning(
-                "GraphRAG実行にはGraphRAG向けデータ解析が必要です。サイドバーの「データ解析実行」ボタンを押してください。"
-            )
-            return
-        # Neo4j接続も確認が必要
         try:
-            driver_check = GraphDatabase.driver(
+            neo4j_driver = GraphDatabase.driver(
                 NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
             )
-            driver_check.verify_connectivity()
-            driver_check.close()  # 確認後切断
+            neo4j_driver.verify_connectivity()
+            print("Neo4j driver connected for execution.")
         except Exception as e:
-            st.warning(
-                f"GraphRAG実行前にNeo4jが起動しているか、接続情報が正しいか確認してください: {e}"
+            # GraphRAGが選択されているがNeo4j接続できない場合のエラー処理
+            st.warning(f"GraphRAGが選択されたが、Neo4jに接続不可。: {e}")
+            print(f"GraphRAGが選択されたが、Neo4jに接続不可。: {e}")
+            neo4j_driver = (
+                None  # 接続失敗時はNoneのままにし、以下のループ内でスキップ処理を行う
             )
-            return
 
-    ollama_client = st.session_state["ollama_client"]
-    if ollama_client is None:
-        st.error("Ollamaクライアントが利用できません。接続を確認してください。")
-        return
-
-    st.subheader("実行結果")
-    # 実行中のステータスを表示するためのプレースホルダー
-    execution_status_area = st.empty()
-    execution_status_area.info("実行中...")
-
-    all_results = []  # 今回の実行で得られた全ての結果を保持するリスト
-
-    # Neo4jドライバーはGraphRAGが選択されている場合のみ作成し、実行後に閉じる
-    neo4j_driver = None
-
-    # 手法 x モデル の組み合わせでループして実行
     # 手法 x モデル の組み合わせでループして実行
     total_executions = len(methods) * len(models)
     completed_count = 0
 
     try:
-        # GraphRAGが選択されている場合のみNeo4jドライバーを作成
-        neo4j_driver = None  # 関数スコープ内で初期化
-        if "GraphRAG" in methods:
-            # Neo4j接続はここで確立し、関数終了時に閉じる
-            try:
-                neo4j_driver = GraphDatabase.driver(
-                    NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
-                )
-                neo4j_driver.verify_connectivity()  # 接続確認
-                # print("Neo4j driver connected for execution.") # ターミナルにログ
-            except Exception as e:
-                # GraphRAGが選択されているがNeo4j接続できない場合のエラー処理
-                # driver = None のままにし、以下のループ内でスキップ処理を行う
-                st.warning(
-                    f"GraphRAGが選択されましたが、Neo4jに接続できませんでした。確認してください: {e}"
-                )
-                # print(f"Neo4j connection error for GraphRAG execution: {e}") # ターミナルにログ
-
         for method in methods:
             for model_name in models:
                 start_time = time.time()
@@ -384,7 +220,7 @@ def perform_execution(query: str, methods: List[str], models: List[str]):
                 execution_status = "Skipped"  # 実行ステータス
 
                 try:
-                    # --- 各手法の実行可能性チェックとコンテキスト取得 ---
+                    # --- 各手法の実行チェックとコンテキスト取得 ---
                     if method == "RAG":
                         if (
                             st.session_state["processed_rag_data"] is not None
@@ -394,34 +230,41 @@ def perform_execution(query: str, methods: List[str], models: List[str]):
                             print(
                                 f"Executing RAG for {model_name}..."
                             )  # ターミナルにログ
-                            # rag_search_generate.py の関数を呼び出し RAG コンテキスト取得
-                            query_vector_res = ollama_client.embeddings(
-                                model=RAG_EMBEDDING_MODEL, prompt=query
-                            )
-                            query_vector = query_vector_res["embedding"]
-                            retrieved_chunks = find_similar_chunks(
-                                query_vector, st.session_state["processed_rag_data"]
-                            )
-                            context_content = format_rag_context(retrieved_chunks)
-                            context_summary = f"{len(retrieved_chunks)} チャンク取得"
-                            if not retrieved_chunks:
-                                context_summary += " (関連なし)"
-
-                            # LLMで回答生成
-                            response_text = generate_response(
-                                query, context_content, model_name, ollama_client
-                            )
-                            execution_status = (
-                                "Success" if response_text is not None else "Failed_LLM"
+                            # rag_search.py の関数を呼び出し RAG コンテキスト取得
+                            context_content = get_rag_context(
+                                query,
+                                st.session_state["processed_rag_data"],
+                                ollama_client,
                             )
 
+                            # context_contentに基づいて概要を生成 (例: チャンク数、内容の有無)
+                            if (
+                                "RAGデータがありません。" in context_content
+                                or "クエリのベクトル化に失敗しました" in context_content
+                            ):
+                                context_summary = "RAGデータなし/エラー"
+                                response_text = "RAGデータが準備されていないか、検索に失敗したため、回答を生成できませんでした。"
+                                execution_status = "Failed_Context"
+                            else:
+                                context_summary = f"{len(context_content.split('チャンク:')) - 1} チャンク取得"  # 簡易的なチャンク数カウント
+                                # LLMで回答生成
+                                response_text = generate_response(
+                                    query, context_content, model_name, ollama_client
+                                )
+                                execution_status = (
+                                    "Success"
+                                    if response_text is not None
+                                    else "Failed_LLM"
+                                )
                         else:
                             # RAGデータが準備できていない場合はスキップ
                             context_content = "【参照情報】\nRAGデータがありません。データ解析を確認してください。"
                             context_summary = "RAGデータなし"
                             response_text = "RAGデータが準備されていないため、回答を生成できませんでした。"
                             execution_status = "Skipped_Data"
-                            # print(f"Skipping RAG for {model_name}: RAG data not available.") # ターミナルにログ
+                            print(
+                                f"Skipping RAG for {model_name}: RAG data not available."
+                            )  # ターミナルにログ
 
                     elif method == "GraphRAG":
                         # GraphRAGが選択されている場合、処理済み状態とNeo4j接続をチェック
@@ -431,17 +274,21 @@ def perform_execution(query: str, methods: List[str], models: List[str]):
                             context_summary = "Graph未解析"
                             response_text = "GraphRAG向けデータ解析が完了していないため、回答を生成できませんでした。"
                             execution_status = "Skipped_Preprocessing"
-                            # print(f"Skipping GraphRAG for {model_name}: Graph preprocessing not done.") # ターミナルにログ
+                            print(
+                                f"Skipping GraphRAG for {model_name}: Graph preprocessing not done."
+                            )  # ターミナルにログ
 
                         elif neo4j_driver is None:
-                            # Neo4j接続が確立できなかった場合スキップ (try/exceptで捕捉済みのはずだが念のため)
+                            # Neo4j接続が確立できなかった場合スキップ
                             context_content = (
                                 "【Graph参照情報】\nNeo4jに接続できません。"
                             )
                             context_summary = "Neo4j接続エラー"
                             response_text = "Neo4jに接続できないため、GraphRAGを実行できませんでした。"
                             execution_status = "Skipped_Neo4j"
-                            # print(f"Skipping GraphRAG for {model_name}: Neo4j driver not available.") # ターミナルにログ
+                            print(
+                                f"Skipping GraphRAG for {model_name}: Neo4j driver not available."
+                            )  # ターミナルにログ
 
                         else:
                             # Graphデータが準備できており、Neo4jに接続できれば実行
@@ -449,55 +296,51 @@ def perform_execution(query: str, methods: List[str], models: List[str]):
                                 f"Executing GraphRAG for {model_name}..."
                             )  # ターミナルにログ
                             # graph_search.py の関数を呼び出し GraphRAG コンテキスト取得
-                            query_entities = identify_query_entities(
-                                query, ollama_client, GRAPH_ERE_MODEL
-                            )  # クエリ分析 (Ollama利用)
-                            if not query_entities:
-                                # クエリからエンティティが特定できない場合
-                                context_content = "【Graph参照情報】\nクエリからGraph検索の起点となるエンティティを特定できませんでした。"
+                            context_content = get_graph_context(
+                                query, neo4j_driver, ollama_client
+                            )
+
+                            # context_contentに基づいて概要を生成 (例: ノード・関係性数、内容の有無)
+                            if (
+                                "Graph検索の起点となるエンティティを特定できませんでした。"
+                                in context_content
+                            ):
                                 context_summary = "エンティティ特定失敗"
                                 response_text = "クエリから関連エンティティを特定できないため、GraphRAGを実行できませんでした。"
                                 execution_status = "Failed_EntityID"
-                                # print(f"GraphRAG failed for {model_name}: Entity identification failed.") # ターミナルにログ
+                            elif "関連情報が見つかりませんでした。" in context_content:
+                                context_summary = "関連なし"
+                                response_text = (
+                                    "GraphRAG検索では関連情報が見つかりませんでした。"
+                                )
+                                execution_status = "Success_NoContext"  # 実行は成功したがコンテキストは得られず
+                            elif (
+                                "Neo4jに接続できません。" in context_content
+                                or "ドライバーが利用できません" in context_content
+                            ):
+                                context_summary = "Neo4jエラー"
+                                response_text = "Neo4j接続に問題があるため、GraphRAGを実行できませんでした。"
+                                execution_status = "Failed_Neo4j"
                             else:
-                                # Graph検索を実行
-                                graph_result = perform_graph_search(
-                                    query_entities, neo4j_driver
+                                # 簡易的なコンテキスト概要の抽出 (例: "ノード: X, 関係性: Y 取得" のような文字列があれば)
+                                # context_contentから解析できればより正確
+                                context_summary_match = re.search(
+                                    r"ノード:\s*(\d+).*関係性:\s*(\d+).*",
+                                    context_content,
                                 )
-                                # コンテキスト整形
-                                context_content = format_graph_results_for_llm(
-                                    graph_result
-                                )
-                                # Graphコンテキストの概要を作成（例: 取得ノード数、関係性数）
-                                num_nodes = sum(
-                                    1 for item in graph_result if "labels" in item
-                                )
-                                num_rels = sum(
-                                    1 for item in graph_result if "type" in item
-                                )  # Neo4j 5.x driver result might need adjustment
-                                context_summary = (
-                                    f"ノード: {num_nodes}, 関係性: {num_rels} 取得"
-                                )
-
-                                if num_nodes == 0 and num_rels == 0:
-                                    # Graph検索で結果が見つからなかった場合
-                                    context_summary += " (関連なし)"
-                                    response_text = "GraphRAG検索では関連情報が見つかりませんでした。"
-                                    execution_status = "Success_NoContext"  # 実行は成功したがコンテキストは得られず
-
+                                if context_summary_match:
+                                    context_summary = f"ノード: {context_summary_match.group(1)}, 関係性: {context_summary_match.group(2)} 取得"
                                 else:
-                                    # LLMで回答生成 (Graphコンテキストとクエリを使用)
-                                    response_text = generate_response(
-                                        query,
-                                        context_content,
-                                        model_name,
-                                        ollama_client,
-                                    )
-                                    execution_status = (
-                                        "Success"
-                                        if response_text is not None
-                                        else "Failed_LLM"
-                                    )
+                                    context_summary = "Graphコンテキスト取得済み"  # もっと良い方法があれば変更
+                                # LLMで回答生成
+                                response_text = generate_response(
+                                    query, context_content, model_name, ollama_client
+                                )
+                                execution_status = (
+                                    "Success"
+                                    if response_text is not None
+                                    else "Failed_LLM"
+                                )
 
                 except Exception as e:
                     # 個別の手法実行中に予期せぬエラー
@@ -510,8 +353,10 @@ def perform_execution(query: str, methods: List[str], models: List[str]):
                         f"Execution error for {method}/{model_name}: {e}"
                     )  # ターミナルにログ
 
+                end_time = time.time()
+                processing_time_ms = (end_time - start_time) * 1000
+
                 # --- 結果をデータベースに保存 ---
-                # スキップされた実行もDBに記録する
                 try:
                     conn = sqlite3.connect(RESULTS_DB_FILE)
                     cursor = conn.cursor()
@@ -530,15 +375,16 @@ def perform_execution(query: str, methods: List[str], models: List[str]):
                             context_summary
                             if method == "GraphRAG"
                             else "",  # GraphRAGならGraph概要
-                            # context_content, # コンテキスト内容自体をDBに入れるかはお好みで（容量注意）
                             response_text,  # 回答またはエラー/スキップメッセージ
                             processing_time_ms,
-                            RAG_DATA_DIR,  # 今回使ったデータディレクトリ（共通として扱う）
+                            RAG_DATA_DIR,
                         ),
                     )
                     conn.commit()
                     conn.close()
-                    # print(f"Result saved to DB for {method}/{model_name}") # ターミナルにログ
+                    print(
+                        f"Result saved to DB for {method}/{model_name}"
+                    )  # ターミナルにログ
                 except Exception as e:
                     st.error(
                         f"データベースへの保存に失敗しました ({method}/{model_name}): {e}"
@@ -561,9 +407,7 @@ def perform_execution(query: str, methods: List[str], models: List[str]):
         execution_status_area.empty()  # 進行状況表示をクリア
 
         st.subheader("今回の実行結果まとめ")
-        # 結果を整形して表示
         for i, result in enumerate(all_results):
-            # ステータスによって色を変えるなどUIを工夫可能
             status_color = (
                 "green"
                 if result["status"] == "Success"
@@ -584,211 +428,194 @@ def perform_execution(query: str, methods: List[str], models: List[str]):
             )
             st.write(f"**コンテキスト概要:** {result['context_summary']}")
             st.write("**回答:**")
-            # 回答/メッセージの内容に応じて表示方法を調整
             if result["status"] == "Success" or result["status"] == "Success_NoContext":
-                st.info(result["response"])  # 成功系の場合はinfoボックス
+                st.info(result["response"])
             elif result["status"].startswith("Skipped"):
-                st.warning(result["response"])  # スキップされた場合はwarningボックス
-            else:  # エラーの場合など
-                st.error(result["response"])  # エラーの場合はerrorボックス
-
-            st.markdown("---")  # 区切り線
+                st.warning(result["response"])
+            else:
+                st.error(result["response"])
+            st.markdown("---")
 
     except Exception as e:
-        # 実行ループ全体での予期せぬエラー
         st.error(f"実行処理中に予期せぬエラーが発生しました: {e}")
         print(f"Overall execution error: {e}")
     finally:
         # GraphRAG実行で使用したドライバーを閉じる
         if neo4j_driver:
             neo4j_driver.close()
-            # print("Neo4j driver closed after execution.") # ターミナルにログ
+            print("Neo4j driver closed after execution.")  # ターミナルにログ
 
 
 # --- 履歴表示 ---
 def view_history():
-    """結果履歴を表示する"""
     st.subheader("実行履歴")
     try:
         conn = sqlite3.connect(RESULTS_DB_FILE)
-        # row_factory を sqlite3.Row にするとカラム名でアクセスできるようになる
-        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT * FROM results ORDER BY timestamp DESC"
-        )  # 新しい順に取得
-        history_data = cursor.fetchall()
+        cursor.execute("SELECT * FROM results ORDER BY timestamp DESC")
+        history_results = cursor.fetchall()
         conn.close()
 
-        if history_data:
+        if history_results:
             # カラム名を動的に取得
-            columns = history_data[0].keys() if history_data else []
-            # pandas DataFrame に変換して表示するのがStreamlitでは最も簡単
-            import pandas as pd
+            col_names = [description[0] for description in cursor.description]
 
-            df = pd.DataFrame(history_data, columns=columns)
+            # Streamlitのexpandersを使って各結果を表示
+            for i, row in enumerate(history_results):
+                row_dict = dict(zip(col_names, row))
 
-            # オプション：フィルタリング機能などをここに追加可能
-            # 例: 質問文でフィルタリング
-            # search_query = st.text_input("質問文でフィルタ", "")
-            # if search_query:
-            #     df = df[df['query'].str.contains(search_query, case=False, na=False)]
+                # 実行日時をJSTに変換
+                timestamp_utc = datetime.strptime(
+                    row_dict["timestamp"], "%Y-%m-%d %H:%M:%S"
+                )
+                timestamp_jst = timestamp_utc.replace(tzinfo=None) + timedelta(hours=9)
 
-            st.dataframe(df)  # 全データを表示 (フィルタリング後も含む)
-
+                header_text = (
+                    f"**クエリ:** {row_dict['query']} | **手法:** {row_dict['method']} | "
+                    f"**モデル:** {row_dict['model']} | **日時:** {timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                with st.expander(header_text):
+                    st.write(f"**クエリ:** {row_dict['query']}")
+                    st.write(f"**手法:** {row_dict['method']}")
+                    st.write(f"**モデル:** {row_dict['model']}")
+                    st.write(
+                        f"**RAG コンテキスト概要:** {row_dict['rag_context_summary'] if row_dict['rag_context_summary'] else 'N/A'}"
+                    )
+                    st.write(
+                        f"**Graph コンテキスト概要:** {row_dict['graph_context_summary'] if row_dict['graph_context_summary'] else 'N/A'}"
+                    )
+                    st.write(f"**回答:** {row_dict['response']}")
+                    st.write(f"**処理時間:** {row_dict['processing_time_ms']:.2f} ms")
+                    st.write(
+                        f"**ソースデータディレクトリ:** {row_dict['source_data_dir']}"
+                    )
+                    st.write(
+                        f"**記録日時 (JST):** {timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                st.markdown("---")
         else:
-            st.info("まだ実行履歴はありません。質問を実行すると履歴が保存されます。")
-
+            st.info("まだ実行履歴がありません。")
     except Exception as e:
-        st.error(f"履歴の読み込みに失敗しました: {e}")
-        # print(f"History view error: {e}") # ターミナルにログ
+        st.error(f"履歴の読み込み中にエラーが発生しました: {e}")
 
 
 # --- メインアプリのエントリーポイント ---
 def main():
-    """Streamlitアプリのメイン関数"""
-    init_db()  # データベース初期化
-    init_clients()  # サービス クライアント初期化 (Ollamaのみ)
+    # セッションステートの初期化
+    if "current_view" not in st.session_state:
+        st.session_state["current_view"] = "main"  # 'main' or 'history'
+    if "rag_processed_status" not in st.session_state:
+        st.session_state["rag_processed_status"] = False
+    if "graph_processed_status" not in st.session_state:
+        st.session_state["graph_processed_status"] = False
+    if "rag_processed_status_msg" not in st.session_state:
+        st.session_state["rag_processed_status_msg"] = "未実行"
+    if "graph_processed_status_msg" not in st.session_state:
+        st.session_state["graph_processed_status_msg"] = "未実行"
+    if "processed_rag_data" not in st.session_state:
+        st.session_state["processed_rag_data"] = None
+        # キャッシュファイルからRAGデータをロードを試みる
+        if os.path.exists(RAG_CACHE_FILE):
+            try:
+                with open(RAG_CACHE_FILE, "r", encoding="utf-8") as f:
+                    st.session_state["processed_rag_data"] = json.load(f)
+                    st.session_state["rag_processed_status"] = True
+                    st.session_state["rag_processed_status_msg"] = (
+                        f"RAGデータがキャッシュからロードされました ({len(st.session_state['processed_rag_data'])}チャンク)。"
+                    )
+                    st.toast("RAGデータがキャッシュからロードされました。")
+            except Exception as e:
+                st.warning(f"RAGキャッシュファイルのロードに失敗しました: {e}")
+                st.session_state["rag_processed_status"] = False
+                st.session_state["rag_processed_status_msg"] = (
+                    "RAGキャッシュロード失敗。"
+                )
+
+    init_db()  # データベースの初期化
+
+    st.title("RAG & GraphRAG 研究システム")
 
     # サイドバー
     with st.sidebar:
-        st.header("設定")
-        st.write(f"**データディレクトリ (RAG):** `{RAG_DATA_DIR}`")
-        st.write(f"**データディレクトリ (Graph):** `{GRAPH_DATA_DIR}`")
-        st.write(f"**RAG Embedding Model:** `{RAG_EMBEDDING_MODEL}`")
-        st.write(f"**Graph ERE Model:** `{GRAPH_ERE_MODEL}`")
-        st.write(f"**Neo4j URI:** `{NEO4J_URI}`")
-        st.write("---")
+        st.header("設定と操作")
 
-        st.subheader("データ解析")
-        help_text_parse = (
-            f"指定ディレクトリ (`{RAG_DATA_DIR}`と`{GRAPH_DATA_DIR}`) からデータを読み込み、\n"
-            "RAG用前処理（チャンク分割、Embedding生成）と\n"
-            "Graph用前処理（エンティティ・関係性抽出、Neo4j登録）を実行します。\n"
-            "RAGデータは一時ファイル (`{PROCESSED_RAG_DATA_FILE}`) にキャッシュされます。\n"
-            "GraphデータはNeo4jに登録されます。"
-        )
-        if st.button("データ解析実行", help=help_text_parse):
+        # データ解析セクション
+        st.subheader("1. データ解析")
+        st.write(f"データディレクトリ: `{RAG_DATA_DIR}`")
+        st.write(f"RAG Embedding モデル: `{RAG_EMBEDDING_MODEL}`")
+        st.write(f"Graph ERE モデル: `{GRAPH_ERE_MODEL}`")
+
+        st.info(f"RAG データ状態: {st.session_state['rag_processed_status_msg']}")
+        st.info(f"Graph データ状態: {st.session_state['graph_processed_status_msg']}")
+
+        if st.button(
+            "データ解析実行",
+            help="データディレクトリ内のファイルを解析し、RAGデータとGraphデータを準備します。Neo4j接続も必要です。",
+        ):
             perform_data_parsing()
 
-        st.write("---")
+        st.markdown("---")
 
-        st.subheader("利用可能Ollamaモデル")
-        if st.session_state["ollama_models"]:
-            st.write(", ".join(st.session_state["ollama_models"]))
-        else:
-            st.warning(
-                "Ollamaモデルが取得できません。Ollamaが起動しているか確認してください。"
-            )
+        # 履歴表示ボタン
+        st.subheader("2. 実行履歴")
+        if st.button(
+            "実行履歴を表示", help="これまでの実行結果をデータベースから表示します。"
+        ):
+            st.session_state["current_view"] = "history"
 
-        st.write("---")
+        # メイン画面に戻るボタン
+        if st.session_state["current_view"] == "history" and st.button(
+            "メイン画面に戻る"
+        ):
+            st.session_state["current_view"] = "main"
 
-        st.subheader("履歴表示")
-        # ボタンで履歴表示/非表示を切り替える
-        if st.button("実行履歴を表示"):
-            st.session_state["view_history"] = True
-        if st.button("質問入力に戻る"):
-            st.session_state["view_history"] = False
+        st.markdown("---")
+        st.subheader("システム情報")
+        st.write(f"Ollama Host: `{OLLAMA_HOST}`")
+        st.write(f"Neo4j URI: `{NEO4J_URI}`")
+        st.write(f"Neo4j User: `{NEO4J_USER}`")
 
-        st.write("---")
-        st.write("**現在のデータ/サービス状態:**")
-        rag_status = (
-            "ロード済み"
-            if st.session_state["processed_rag_data"] is not None
-            and len(st.session_state["processed_rag_data"]) > 0
-            else "未ロード"
-        )
-        graph_status = (
-            "処理済み" if st.session_state["graph_processed_status"] else "未処理"
-        )
-        ollama_status = (
-            "接続済み" if st.session_state["ollama_client"] is not None else "未接続"
-        )
+    # メインコンテンツ
+    if st.session_state["current_view"] == "main":
+        st.subheader("質問入力と実行")
 
-        st.write(
-            f"- RAGデータ: {rag_status} ({len(st.session_state['processed_rag_data']) if st.session_state['processed_rag_data'] is not None else 0} chunks)"
-        )
-        st.write(f"- Graphデータ: {graph_status}")
-        st.write(f"- Ollama: {ollama_status}")
-        # Neo4jの接続状態は実行時または解析時に確認
-
-    # メインエリア
-    if st.session_state.get("view_history", False):
-        # 履歴表示フラグがTrueの場合、履歴表示関数を呼び出す
-        view_history()
-    else:
-        # 履歴表示フラグがFalseの場合、質問・実行UIを表示
-        st.title("RAG vs GraphRAG 研究システム")
-        st.write("事前入力データに基づき、異なる手法とLLMモデルでの回答を比較します。")
-        st.write("サイドバーの「データ解析実行」をまず行ってください。")
-
-        st.subheader("質問と実行")
-        query_text = st.text_area("質問文を入力してください:", height=100)
+        query = st.text_area("質問を入力してください:", height=100, key="query_input")
 
         col1, col2 = st.columns(2)
         with col1:
-            selected_methods = st.multiselect(
-                "実行する手法:",
-                ["RAG", "GraphRAG"],
-                default=["RAG", "GraphRAG"],
-                help="比較したい情報検索手法を選択してください。",
+            st.multiselect(
+                "実行する手法を選択:",
+                options=["RAG", "GraphRAG"],
+                default=["RAG"],
+                key="selected_methods",
             )
         with col2:
-            # 利用可能モデルのリストを取得して表示
-            available_models = st.session_state["ollama_models"]
-            # デフォルトで最初のモデルを選択、リストが空の場合は空リスト
-            default_models = available_models[:1] if available_models else []
-            # もしmistralが含まれていればデフォルトにするなど、モデルリストに応じて調整可能
-            if "mistral" in available_models:
-                default_models = ["mistral"]
-            elif available_models:
-                default_models = [available_models[0]]
-
-            selected_models = st.multiselect(
-                "利用するOllamaモデル:",
-                available_models,
-                default=default_models,
-                help="回答生成に使用するOllamaモデルを複数選択できます。",
+            st.multiselect(
+                "使用するLLMモデルを選択:",
+                options=LLM_MODELS,
+                default=LLM_MODELS[0] if LLM_MODELS else [],
+                key="selected_models",
             )
 
-        # 実行ボタン
-        help_text_execute = "選択した手法とモデルの組み合わせごとに回答を生成し、結果を履歴に保存します。"
-        if st.button("実行", help=help_text_execute):
-            # 実行前に、RAGデータまたはGraphデータが準備されているか再度簡易チェック
-            if not selected_methods or not selected_models:
-                st.warning("手法とモデルを選択してください。")
-            elif "RAG" in selected_methods and (
-                st.session_state["processed_rag_data"] is None
-                or len(st.session_state["processed_rag_data"]) == 0
-            ):
-                st.warning(
-                    "RAG実行にはデータ解析が必要です。サイドバーの「データ解析実行」ボタンを押してください。"
+        if st.button("実行", type="primary"):
+            with st.spinner("処理中..."):
+                perform_execution(
+                    query,
+                    st.session_state["selected_methods"],
+                    st.session_state["selected_models"],
                 )
-            elif "GraphRAG" in selected_methods:
-                # GraphRAG選択時はGraph処理済み状態とNeo4j接続可能性をチェック
-                if not st.session_state["graph_processed_status"]:
-                    st.warning(
-                        "GraphRAG実行にはデータ解析が必要です。サイドバーの「データ解析実行」ボタンを押してください。"
-                    )
-                else:
-                    # Neo4j接続はperform_execution内で確立しますが、ここでは警告を出すために事前に接続を試みる
-                    try:
-                        driver_check = GraphDatabase.driver(
-                            NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
-                        )
-                        driver_check.verify_connectivity()
-                        driver_check.close()
-                        # 全てのチェックがOKなら実行
-                        perform_execution(query_text, selected_methods, selected_models)
-                    except Exception as e:
-                        st.warning(
-                            f"GraphRAG実行前にNeo4jが起動しているか、接続情報が正しいか確認してください: {e}"
-                        )
-
-            else:  # RAGのみ選択の場合など、すべてのチェックがOKなら実行
-                perform_execution(query_text, selected_methods, selected_models)
+    elif st.session_state["current_view"] == "history":
+        view_history()
 
 
 # --- スクリプト実行 ---
 if __name__ == "__main__":
+    import re  # perform_execution 内の正規表現のためにインポート
+    from datetime import timedelta  # view_history 内で必要
+
+    # Ollamaクライアントの初期化をここでも実行（@st.cache_resourceのため一度だけ実行される）
+    ollama_client_init = init_clients()
+    if ollama_client_init is None:
+        st.stop()  # クライアント接続失敗時はアプリを停止
+
     main()

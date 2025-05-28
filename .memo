@@ -1,0 +1,3 @@
+app.py
+RAG_EMBEDDING_MODEL = "nomic-embed-text"  # RAGベクトル生成用モデル
+GRAPH_ERE_MODEL = "mistral"  # Graphエンティティ・関係性抽出用モデル

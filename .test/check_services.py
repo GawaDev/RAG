@@ -1,9 +1,11 @@
+import os
+
 import ollama
 from neo4j import GraphDatabase
 
 URI = "bolt://localhost:7687"  # Neo4jのURI
 USER = "neo4j"  # ユーザー名
-PASSWORD = "HIROTAHIROTA"  # パスワード
+PASSWORD = os.getenv("NEO4J_PASSWORD", "password")  # パスワード
 
 try:
     response = ollama.chat(
