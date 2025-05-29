@@ -4,16 +4,9 @@ from typing import Any, Dict, List, Optional
 
 import ollama
 
-# --- 設定 ---
-# 環境変数または直接設定
-# OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-# EMBEDDING_MODEL = "nomic-embed-text" # RAGベクトル生成用モデル
-# DATA_DIR = "./data/raw" # データディレクトリ
-
-# app.pyから直接引数で受け取るため、ここでは定数として持たないか、デフォルト値としてのみ使う
-
 
 # --- ヘルパー関数 ---
+# チャンキング
 def simple_chunk_text(
     text: str, chunk_size: int = 500, overlap_size: int = 50
 ) -> List[str]:
@@ -35,6 +28,7 @@ def simple_chunk_text(
     return chunks
 
 
+#
 def read_file_content(filepath: str) -> Optional[str]:
     try:
         with open(filepath, "r", encoding="utf-8") as f:
@@ -42,7 +36,7 @@ def read_file_content(filepath: str) -> Optional[str]:
 
         content = ""
 
-        if isinstance(data, list):  # ✅ リスト形式の対応追加
+        if isinstance(data, list):  # リスト形式の対応追加
             for doc in data:
                 if "title" in doc:
                     content += f"Title: {doc['title']}\n"
@@ -133,11 +127,8 @@ def preprocess_for_rag(
     return all_chunks_with_vectors
 
 
-# --- スクリプトとして実行された場合の処理 (app.pyからは直接呼ばれない) ---
+# --- スクリプトとして実行された場合の処理---
 if __name__ == "__main__":
-    # このブロック内の処理は、ファイルを直接実行したときのテストや初回処理用です。
-    # app.py は上記の preprocess_for_rag 関数を直接呼び出します。
-
     # テスト用の設定（環境変数から読み込むか、直接指定）
     OLLAMA_HOST_TEST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     EMBEDDING_MODEL_TEST = "nomic-embed-text"
@@ -178,9 +169,5 @@ if __name__ == "__main__":
             f"First chunk example (vector len): {len(processed_rag_data_for_test[0]['vector'])}"
         )
 
-        # テストで保存する場合はここに記述
-        # with open("test_processed_rag_data_cache.json", 'w', encoding='utf-8') as f:
-        #     json.dump(processed_rag_data_for_test, f, ensure_ascii=False, indent=2)
-        # print("Test RAG data saved to test_processed_rag_data_cache.json")
     else:
         print("Test run: RAG data processing failed or no chunks were generated.")
