@@ -1,0 +1,284 @@
+{
+    "doc_id": "tsukuba_guideline_20241022",
+    "original_filename": "教育における生成AI活用のガイドライン2024（学生向け）.pdf",
+    "file_type": "pdf",
+    "title": "教育における生成AI活用のガイドライン2024（学生向け）",
+    "date": "2024-10-22",
+    "issued_by": "筑波大学",
+    "addressed_to": "学生向け",
+    "version": null,
+    "sections": [
+        {
+            "section_type": "text",
+            "section_title": "概要",
+            "content": [
+                {
+                    "id": "tsukuba_sec0_con0",
+                    "original_text": "生成AIの急速な発展を踏まえ、教育・研究への影響を認識。AIの原理理解、人間エンパワメントのための活用、多様な分野での可能性を探求することを強調。AIは大量データ学習に基づきテキスト、画像、音声等を生成。ChatGPT, Copilot, Gemini等が例。",
+                    "ocr_text": null,
+                    "llm_summary": "本ガイドラインは生成AIの教育・研究への影響を認識し、その原理理解、人間エンパワメントのための活用、多様な分野での可能性探求を促す。生成AIの例としてChatGPT, Copilot, Geminiが挙げられる。",
+                    "start_page": 1,
+                    "ocr_info": null,
+                    "llm_info": {
+                        "purpose": "text_summarization",
+                        "model": "mistral",
+                        "timestamp": "2024-05-29 07:48:12"
+                    }
+                },
+                {
+                    "id": "tsukuba_sec0_con1",
+                    "original_text": "バイアス、情報の信頼性、著作権侵害、データ漏洩等の潜在的な課題に注意が必要。",
+                    "ocr_text": null,
+                    "llm_summary": "生成AIの利用にはバイアス、信頼性、著作権、データ漏洩の課題に注意が必要。",
+                    "start_page": 1,
+                    "ocr_info": null,
+                    "llm_info": {
+                        "purpose": "text_summarization",
+                        "model": "mistral",
+                        "timestamp": "2024-05-29 07:48:12"
+                    }
+                }
+            ]
+        },
+        {
+            "section_type": "text",
+            "section_title": "基本的な原則",
+            "content": [
+                {
+                    "id": "tsukuba_sec1_con0",
+                    "original_text": "倫理的な使用、批判的思考、協力を重視。幅広い教養、リテラシー、社会を豊かにする協働の精神を育む必要性を強調。",
+                    "ocr_text": null,
+                    "llm_summary": "生成AIの利用において倫理、批判的思考、協力、幅広い教養、リテラシー、協働の精神が重要である。",
+                    "start_page": 2,
+                    "ocr_info": null,
+                    "llm_info": {
+                        "purpose": "text_summarization",
+                        "model": "mistral",
+                        "timestamp": "2024-05-29 07:48:12"
+                    }
+                }
+            ]
+        },
+        {
+            "section_type": "text",
+            "section_title": "学生生活における生成AIの利用にあたって",
+            "content": [
+                {
+                    "id": "tsukuba_sec2_con0",
+                    "original_text": "意図を持ったAI利用、個人情報保護、生成情報の慎重な評価、他人を傷つける目的での利用禁止、メディアリテラシー向上の重要性を指摘。",
+                    "ocr_text": null,
+                    "llm_summary": "学生はAI利用時に意図を持ち、個人情報保護、情報評価の慎重さ、他人を傷つけないこと、メディアリテラシー向上を意識すべき。",
+                    "start_page": 2,
+                    "ocr_info": null,
+                    "llm_info": {
+                        "purpose": "text_summarization",
+                        "model": "mistral",
+                        "timestamp": "2024-05-29 07:48:12"
+                    }
+                }
+            ]
+        },
+        {
+            "section_type": "text",
+            "section_title": "学修における生成AIの利用について",
+            "content": [
+                {
+                    "id": "tsukuba_sec3_con0",
+                    "original_text": "学修におけるAIの可能性の積極的な探求を奨励しつつ、その限界を理解することの重要性を強調。課題、試験、研究におけるAIの適切な利用についても言及し、学術的誠実性と生成内容の正確性検証を強調。",
+                    "ocr_text": null,
+                    "llm_summary": "学習でのAI活用を奨励する一方、その限界理解も重要。課題、試験、研究での適切なAI利用と、学術的誠実性・内容正確性検証を強調する。",
+                    "start_page": 3,
+                    "ocr_info": null,
+                    "llm_info": {
+                        "purpose": "text_summarization",
+                        "model": "mistral",
+                        "timestamp": "2024-05-29 07:48:12"
+                    }
+                }
+            ]
+        }
+    ],
+    "entities": [
+        {
+            "name": "筑波大学",
+            "type": "ORGANIZATION"
+        },
+        {
+            "name": "生成AI",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "ガイドライン",
+            "type": "DOCUMENT_ELEMENT"
+        },
+        {
+            "name": "教育",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "研究",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "学生",
+            "type": "PERSON_GROUP"
+        },
+        {
+            "name": "ChatGPT",
+            "type": "PRODUCT"
+        },
+        {
+            "name": "Copilot",
+            "type": "PRODUCT"
+        },
+        {
+            "name": "Gemini",
+            "type": "PRODUCT"
+        },
+        {
+            "name": "バイアス",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "情報の信頼性",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "著作権侵害",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "データ漏洩",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "倫理的な使用",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "批判的思考",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "協力",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "個人情報保護",
+            "type": "ACTION"
+        },
+        {
+            "name": "メディアリテラシー",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "学術的誠実性",
+            "type": "CONCEPT"
+        },
+        {
+            "name": "正確性検証",
+            "type": "ACTION"
+        },
+        {
+            "name": "学修",
+            "type": "CONCEPT"
+        }
+    ],
+    "relations": [
+        {
+            "entity1_name": "ガイドライン",
+            "relation_type": "ISSUED_BY",
+            "entity2_name": "筑波大学"
+        },
+        {
+            "entity1_name": "ガイドライン",
+            "relation_type": "ADDRESSED_TO",
+            "entity2_name": "学生"
+        },
+        {
+            "entity1_name": "生成AI",
+            "relation_type": "AFFECTS",
+            "entity2_name": "教育"
+        },
+        {
+            "entity1_name": "生成AI",
+            "relation_type": "AFFECTS",
+            "entity2_name": "研究"
+        },
+        {
+            "entity1_name": "生成AI",
+            "relation_type": "INCLUDES_EXAMPLE",
+            "entity2_name": "ChatGPT"
+        },
+        {
+            "entity1_name": "生成AI",
+            "relation_type": "INCLUDES_EXAMPLE",
+            "entity2_name": "Copilot"
+        },
+        {
+            "entity1_name": "生成AI",
+            "relation_type": "INCLUDES_EXAMPLE",
+            "entity2_name": "Gemini"
+        },
+        {
+            "entity1_name": "生成AI",
+            "relation_type": "HAS_POTENTIAL_ISSUE",
+            "entity2_name": "バイアス"
+        },
+        {
+            "entity1_name": "生成AI",
+            "relation_type": "HAS_POTENTIAL_ISSUE",
+            "entity2_name": "情報の信頼性"
+        },
+        {
+            "entity1_name": "生成AI",
+            "relation_type": "HAS_POTENTIAL_ISSUE",
+            "entity2_name": "著作権侵害"
+        },
+        {
+            "entity1_name": "生成AI",
+            "relation_type": "HAS_POTENTIAL_ISSUE",
+            "entity2_name": "データ漏洩"
+        },
+        {
+            "entity1_name": "ガイドライン",
+            "relation_type": "EMPHASIZES",
+            "entity2_name": "倫理的な使用"
+        },
+        {
+            "entity1_name": "ガイドライン",
+            "relation_type": "EMPHASIZES",
+            "entity2_name": "批判的思考"
+        },
+        {
+            "entity1_name": "ガイドライン",
+            "relation_type": "EMPHASIZES",
+            "entity2_name": "協力"
+        },
+        {
+            "entity1_name": "学生",
+            "relation_type": "SHOULD_ENSURE",
+            "entity2_name": "個人情報保護"
+        },
+        {
+            "entity1_name": "学生",
+            "relation_type": "SHOULD_IMPROVE",
+            "entity2_name": "メディアリテラシー"
+        },
+        {
+            "entity1_name": "学修",
+            "relation_type": "UTILIZES",
+            "entity2_name": "生成AI"
+        },
+        {
+            "entity1_name": "学修",
+            "relation_type": "REQUIRES",
+            "entity2_name": "学術的誠実性"
+        },
+        {
+            "entity1_name": "学修",
+            "relation_type": "REQUIRES",
+            "entity2_name": "正確性検証"
+        }
+    ]
+}
